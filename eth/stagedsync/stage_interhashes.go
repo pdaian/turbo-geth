@@ -307,6 +307,8 @@ func UnwindIntermediateHashesStage(u *UnwindState, s *StageState, db ethdb.Datab
 	if err != nil {
 		return fmt.Errorf("read canonical hash: %w", err)
 	}
+	fmt.Printf("u: %d->%d\n", s.BlockNumber, u.UnwindPoint)
+
 	syncHeadHeader := rawdb.ReadHeader(db, hash, u.UnwindPoint)
 	expectedRootHash := syncHeadHeader.Root
 
@@ -356,6 +358,7 @@ func unwindIntermediateHashesStageImpl(logPrefix string, u *UnwindState, s *Stag
 	sort.Slice(exclude, func(i, j int) bool { return bytes.Compare(exclude[i], exclude[j]) < 0 })
 	unfurl := trie.NewRetainList(0)
 	for i := range exclude {
+		fmt.Printf("excl: %x\n", exclude[i])
 		unfurl.AddKey(exclude[i])
 	}
 

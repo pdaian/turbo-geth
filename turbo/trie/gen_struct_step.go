@@ -202,7 +202,9 @@ func GenStructStep(
 					return nil, err
 				}
 			}
+			fmt.Printf("--- 1: 3, %x, , %x\n", curr[:maxLen], e.topHash())
 		}
+
 		groups = groups[:maxLen]
 		// Check the end of recursion
 		if precLen == 0 {
