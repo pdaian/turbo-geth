@@ -99,6 +99,9 @@ func RegenerateIntermediateHashes(logPrefix string, db ethdb.Database, checkRoot
 		if len(keyHex) == 0 {
 			return nil
 		}
+		if bytes.HasPrefix(keyHex, common.FromHex("0c")) {
+			fmt.Printf("Collect: %x, %x\n", keyHex, hash)
+		}
 		if len(keyHex) > trie.IHDupKeyLen {
 			return collector.Collect(keyHex[:trie.IHDupKeyLen], append(keyHex[trie.IHDupKeyLen:], hash...))
 		}
@@ -265,6 +268,10 @@ func incrementIntermediateHashes(logPrefix string, s *StageState, db ethdb.Datab
 		if len(keyHex) == 0 {
 			return nil
 		}
+		if bytes.HasPrefix(keyHex, common.FromHex("0c")) {
+			fmt.Printf("Collect: %x, %x\n", keyHex, hash)
+		}
+
 		if len(keyHex) > trie.IHDupKeyLen {
 			return collector.Collect(keyHex[:trie.IHDupKeyLen], append(keyHex[trie.IHDupKeyLen:], hash...))
 		}
@@ -370,6 +377,10 @@ func unwindIntermediateHashesStageImpl(logPrefix string, u *UnwindState, s *Stag
 		if len(keyHex) == 0 {
 			return nil
 		}
+		if bytes.HasPrefix(keyHex, common.FromHex("0c")) {
+			fmt.Printf("Collect: %x, %x\n", keyHex, hash)
+		}
+
 		if len(keyHex) > trie.IHDupKeyLen {
 			return collector.Collect(keyHex[:trie.IHDupKeyLen], append(keyHex[trie.IHDupKeyLen:], hash...))
 		}
