@@ -604,7 +604,7 @@ func (hb *HashBuilder) topHashes(prefix []byte, set uint16) []byte {
 	var i int
 	for digit := uint(0); digit < 16; digit++ {
 		if ((uint16(1) << digit) & set) != 0 {
-			fmt.Printf("topHash: %x%x, %x\n", prefix, digit, hashes[hashStackStride*i+1:hashStackStride*(i+1)])
+			fmt.Printf("topHash: %x%02x, %x\n", prefix, digit, hashes[hashStackStride*i+1:hashStackStride*(i+1)])
 			copy(buf[common.HashLength*i:common.HashLength*(i+1)], hashes[hashStackStride*i+1:hashStackStride*(i+1)])
 			i++
 		}
