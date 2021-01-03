@@ -255,7 +255,7 @@ func incrementIntermediateHashes(logPrefix string, s *StageState, db ethdb.Datab
 	if err := p.Promote(logPrefix, s, s.BlockNumber, to, true /* storage */, collect); err != nil {
 		return err
 	}
-	exclude = append(exclude, common.FromHex("5c"))
+	exclude = append(exclude, common.FromHex("5250"))
 	sort.Slice(exclude, func(i, j int) bool { return bytes.Compare(exclude[i], exclude[j]) < 0 })
 	unfurl := trie.NewRetainList(1)
 	for i := range exclude {
