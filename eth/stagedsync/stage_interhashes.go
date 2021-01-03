@@ -100,16 +100,16 @@ func RegenerateIntermediateHashes(logPrefix string, db ethdb.Database, checkRoot
 		if len(keyHex) == 0 {
 			return nil
 		}
-		if bytes.HasPrefix(keyHex, common.FromHex("0c")) {
-			fmt.Printf("Collect: %x, %x\n", keyHex, hash)
-		}
+		//if bytes.HasPrefix(keyHex, common.FromHex("0c")) {
+		//	fmt.Printf("Collect: %x, %x\n", keyHex, hash)
+		//}
 		if len(keyHex) > trie.IHDupKeyLen {
 			return collector.Collect(keyHex[:trie.IHDupKeyLen], append(keyHex[trie.IHDupKeyLen:], hash...))
 		}
 		return collector.Collect(keyHex, hash)
 	}
 	loader := trie.NewFlatDBTrieLoader(logPrefix, dbutils.CurrentStateBucket, dbutils.IntermediateTrieHashBucket)
-	if err := loader.Reset(trie.NewRetainList(0), hashCollector /* HashCollector */, false); err != nil {
+	if err := loader.Reset(trie.NewRetainList(1), hashCollector /* HashCollector */, false); err != nil {
 		return err
 	}
 	t := time.Now()
@@ -255,7 +255,7 @@ func incrementIntermediateHashes(logPrefix string, s *StageState, db ethdb.Datab
 	if err := p.Promote(logPrefix, s, s.BlockNumber, to, true /* storage */, collect); err != nil {
 		return err
 	}
-	exclude = append(exclude, common.FromHex("5250"))
+	exclude = append(exclude, common.FromHex("51"))
 	sort.Slice(exclude, func(i, j int) bool { return bytes.Compare(exclude[i], exclude[j]) < 0 })
 	unfurl := trie.NewRetainList(1)
 	for i := range exclude {
@@ -376,9 +376,9 @@ func unwindIntermediateHashesStageImpl(logPrefix string, u *UnwindState, s *Stag
 		if len(keyHex) == 0 {
 			return nil
 		}
-		if bytes.HasPrefix(keyHex, common.FromHex("0c")) {
-			fmt.Printf("Collect: %x, %x\n", keyHex, hash)
-		}
+		//if bytes.HasPrefix(keyHex, common.FromHex("0c")) {
+		//	fmt.Printf("Collect: %x, %x\n", keyHex, hash)
+		//}
 
 		if len(keyHex) > trie.IHDupKeyLen {
 			return collector.Collect(keyHex[:trie.IHDupKeyLen], append(keyHex[trie.IHDupKeyLen:], hash...))
