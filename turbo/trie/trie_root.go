@@ -467,7 +467,13 @@ func (r *RootHashAggregator) Receive(itemType StreamItem,
 	hash []byte,
 	cutoff int,
 ) error {
-	fmt.Printf("1: %d, %x, %x, %x\n", itemType, accountKey, storageKey, hash)
+	if storageKey != nil {
+		b := make([]byte, 40)
+		CompressNibbles(storageKey[:80], &b)
+		fmt.Printf("1: %d, %x, %x, %x\n", itemType, b, storageKey[80:], hash)
+	} else {
+		fmt.Printf("1: %d, %x, %x, %x\n", itemType, accountKey, storageKey, hash)
+	}
 	switch itemType {
 	case StorageStreamItem:
 		r.advanceKeysStorage(storageKey, true /* terminator */)
