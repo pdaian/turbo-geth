@@ -240,7 +240,6 @@ func (l *FlatDBTrieLoader) iteration(c *StateCursor, ih *IHCursor, first bool) e
 			l.storageKey = nil
 			l.storageValue = nil
 			l.hashValue = nil
-			fmt.Printf("acc: %x %x\n", l.kHex, l.v)
 			if err = l.accountValue.DecodeForStorage(l.v); err != nil {
 				return fmt.Errorf("fail DecodeForStorage: %w", err)
 			}
