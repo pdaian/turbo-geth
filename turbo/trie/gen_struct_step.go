@@ -187,7 +187,7 @@ func GenStructStep(
 		}
 		// Close the immediately encompassing prefix group, if needed
 		if len(succ) > 0 || precExists {
-			e.topHashes(curr[:maxLen], groups[maxLen])
+			//e.topHashes(curr[:maxLen], groups[maxLen])
 			if retain(curr[:maxLen]) {
 				if err := e.branch(groups[maxLen]); err != nil {
 					return nil, err
@@ -202,11 +202,11 @@ func GenStructStep(
 					return nil, err
 				}
 			}
-			if maxLen >= 80 {
-				fmt.Printf("--- 1: 3, %x, , %x\n", curr[:maxLen][80:], e.topHash())
-			} else {
-				fmt.Printf("--- 1: 3, %x, , %x\n", curr[:maxLen], e.topHash())
-			}
+			//if maxLen >= 80 {
+			//	fmt.Printf("--- 1: 3, %x, , %x\n", curr[:maxLen][80:], e.topHash())
+			//} else {
+			//	fmt.Printf("--- 1: 3, %x, , %x\n", curr[:maxLen], e.topHash())
+			//}
 		}
 
 		groups = groups[:maxLen]
