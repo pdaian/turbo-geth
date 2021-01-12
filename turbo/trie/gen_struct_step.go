@@ -187,7 +187,7 @@ func GenStructStep(
 		}
 		// Close the immediately encompassing prefix group, if needed
 		if len(succ) > 0 || precExists {
-			//e.topHashes(curr[:maxLen], groups[maxLen])
+			e.topHashes(curr[:maxLen], groups[maxLen])
 			if retain(curr[:maxLen]) {
 				if err := e.branch(groups[maxLen]); err != nil {
 					return nil, err
