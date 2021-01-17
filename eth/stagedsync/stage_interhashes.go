@@ -171,12 +171,16 @@ func (p *HashPromoter) Promote(logPrefix string, s *StageState, from, to uint64,
 			return err
 		}
 		if bytes.HasPrefix(newK, common.FromHex("1570aaebc55e1a8067cc4a5c3ba451d196bf91544f183168b51bb1d306bda995")) {
-			if len(v) > 1 {
-				var a accounts.Account
-				a.DecodeForStorage(v)
-				fmt.Printf("acc: %d -> %d\n", blockN, a.Incarnation)
+			if len(newK) == 32 {
+				if len(v) > 0 {
+					var a accounts.Account
+					a.DecodeForStorage(v)
+					fmt.Printf("acc: %d -> %d\n", blockN, a.Incarnation)
+				} else {
+					fmt.Printf("acc: empty! %d\n", blockN)
+				}
 			} else {
-				fmt.Printf("acc: empty! %d\n", blockN)
+				fmt.Printf("storage! %d, %x, %x\n", blockN, newK, v)
 			}
 		}
 		return next(dbKey, newK, nil)
@@ -224,12 +228,16 @@ func (p *HashPromoter) Unwind(logPrefix string, s *StageState, u *UnwindState, s
 			return err
 		}
 		if bytes.HasPrefix(newK, common.FromHex("1570aaebc55e1a8067cc4a5c3ba451d196bf91544f183168b51bb1d306bda995")) {
-			if len(v) > 1 {
-				var a accounts.Account
-				a.DecodeForStorage(v)
-				fmt.Printf("acc: %d -> %d\n", blockN, a.Incarnation)
+			if len(newK) == 32 {
+				if len(v) > 0 {
+					var a accounts.Account
+					a.DecodeForStorage(v)
+					fmt.Printf("acc: %d -> %d\n", blockN, a.Incarnation)
+				} else {
+					fmt.Printf("acc: empty! %d\n", blockN)
+				}
 			} else {
-				fmt.Printf("acc: empty! %d\n", blockN)
+				fmt.Printf("storage! %d, %x, %x\n", blockN, newK, v)
 			}
 		}
 		return next(k, newK, nil)
