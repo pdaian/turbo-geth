@@ -202,11 +202,11 @@ func GenStructStep(
 					return nil, err
 				}
 			}
-			//if maxLen >= 80 {
-			//	fmt.Printf("--- 1: 3, %x, , %x\n", curr[:maxLen][80:], e.topHash())
-			//} else {
-			//	fmt.Printf("--- 1: 3, %x, , %x\n", curr[:maxLen], e.topHash())
-			//}
+			if maxLen >= 80 {
+				fmt.Printf("--- 1: 3, %x, , %x\n", curr[:maxLen][80:], e.topHash())
+			} else {
+				fmt.Printf("--- 1: 3, %x, , %x\n", curr[:maxLen], e.topHash())
+			}
 		}
 
 		groups = groups[:maxLen]
