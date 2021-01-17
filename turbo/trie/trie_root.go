@@ -776,6 +776,7 @@ func (c *IHCursor) _seek(seek []byte) (k, v []byte, err error) {
 		v = v[keyPart:]
 	}
 
+	fmt.Printf("root: %x, %t\n", k, c.filter(k))
 	if c.filter(k) { // if filter allow us, return. otherwise delete and go ahead.
 		return k, v, nil
 	}
