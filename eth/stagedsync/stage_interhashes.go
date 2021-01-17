@@ -13,6 +13,7 @@ import (
 	"github.com/ledgerwatch/turbo-geth/common/dbutils"
 	"github.com/ledgerwatch/turbo-geth/common/etl"
 	"github.com/ledgerwatch/turbo-geth/core/rawdb"
+	"github.com/ledgerwatch/turbo-geth/core/types/accounts"
 	"github.com/ledgerwatch/turbo-geth/eth/stagedsync/stages"
 	"github.com/ledgerwatch/turbo-geth/ethdb"
 	"github.com/ledgerwatch/turbo-geth/log"
@@ -164,10 +165,19 @@ func (p *HashPromoter) Promote(logPrefix string, s *StageState, from, to uint64,
 
 	decode := changeset.Mapper[changeSetBucket].Decode
 	extract := func(dbKey, dbValue []byte, next etl.ExtractNextFunc) error {
-		_, k, _ := decode(dbKey, dbValue)
+		blockN, k, v := decode(dbKey, dbValue)
 		newK, err := transformPlainStateKey(k)
 		if err != nil {
 			return err
+		}
+		if bytes.HasPrefix(newK, common.FromHex("1570aaebc55e1a8067cc4a5c3ba451d196bf91544f183168b51bb1d306bda995")) {
+			if len(v) > 1 {
+				var a accounts.Account
+				a.DecodeForStorage(v)
+				fmt.Printf("acc: %d -> %d\n", blockN, a.Incarnation)
+			} else {
+				fmt.Printf("acc: empty! %d\n", blockN)
+			}
 		}
 		return next(dbKey, newK, nil)
 	}
@@ -208,10 +218,19 @@ func (p *HashPromoter) Unwind(logPrefix string, s *StageState, u *UnwindState, s
 
 	decode := changeset.Mapper[changeSetBucket].Decode
 	extract := func(dbKey, dbValue []byte, next etl.ExtractNextFunc) error {
-		_, k, _ := decode(dbKey, dbValue)
+		blockN, k, v := decode(dbKey, dbValue)
 		newK, err := transformPlainStateKey(k)
 		if err != nil {
 			return err
+		}
+		if bytes.HasPrefix(newK, common.FromHex("1570aaebc55e1a8067cc4a5c3ba451d196bf91544f183168b51bb1d306bda995")) {
+			if len(v) > 1 {
+				var a accounts.Account
+				a.DecodeForStorage(v)
+				fmt.Printf("acc: %d -> %d\n", blockN, a.Incarnation)
+			} else {
+				fmt.Printf("acc: empty! %d\n", blockN)
+			}
 		}
 		return next(k, newK, nil)
 	}
@@ -269,6 +288,9 @@ func incrementIntermediateHashes(logPrefix string, s *StageState, db ethdb.Datab
 	hashCollector := func(keyHex []byte, hash []byte) error {
 		if len(keyHex) == 0 {
 			return nil
+		}
+		if bytes.HasPrefix(keyHex, common.FromHex("010507000a0a0e0b0c05050e010a080006070c0c040a050c030b0a0405010d0109060b0f09010504040f0108030106080b05010b0b010d0300060b0d0a09090500000000000000000000000000000001")) {
+			fmt.Printf("Collect: %x, %x\n", keyHex, hash)
 		}
 		if len(keyHex) > trie.IHDupKeyLen {
 			return collector.Collect(keyHex[:trie.IHDupKeyLen], append(keyHex[trie.IHDupKeyLen:], hash...))
@@ -375,10 +397,10 @@ func unwindIntermediateHashesStageImpl(logPrefix string, u *UnwindState, s *Stag
 		if len(keyHex) == 0 {
 			return nil
 		}
-		//if bytes.HasPrefix(keyHex, common.FromHex("0c")) {
-		//	fmt.Printf("Collect: %x, %x\n", keyHex, hash)
-		//}
 
+		if bytes.HasPrefix(keyHex, common.FromHex("010507000a0a0e0b0c05050e010a080006070c0c040a050c030b0a0405010d0109060b0f09010504040f0108030106080b05010b0b010d0300060b0d0a09090500000000000000000000000000000001")) {
+			fmt.Printf("Collect: %x, %x\n", keyHex, hash)
+		}
 		if len(keyHex) > trie.IHDupKeyLen {
 			return collector.Collect(keyHex[:trie.IHDupKeyLen], append(keyHex[trie.IHDupKeyLen:], hash...))
 		}
