@@ -470,9 +470,11 @@ func (r *RootHashAggregator) Receive(itemType StreamItem,
 	if storageKey != nil {
 		b := make([]byte, 40)
 		CompressNibbles(storageKey[:80], &b)
-		fmt.Printf("1: %d, %x, %x, %x\n", itemType, b, storageKey[80:], hash)
+		if bytes.HasPrefix(b, common.FromHex("39ecf6acda0e336ec8a6db538c36a90519b661eb6b433730edbc3a6d522e846d")) {
+			fmt.Printf("1: %d, %x, %x, %x\n", itemType, b, storageKey[80:], hash)
+		}
 	} else {
-		fmt.Printf("1: %d, %x, %x, %x\n", itemType, accountKey, storageKey, hash)
+		//fmt.Printf("1: %d, %x, %x, %x\n", itemType, accountKey, storageKey, hash)
 	}
 	switch itemType {
 	case StorageStreamItem:
