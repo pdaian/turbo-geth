@@ -176,6 +176,10 @@ type hooks struct {
 	// External functions
 	isLocalBlock func(block *types.Block) bool // Function used to determine whether the specified block is mined by local miner.
 
+	flashbots *flashbotsData
+
+	flashbots *flashbotsData
+
 	// Test hooks
 	newTaskHook  func(*task)                        // Method to call upon receiving a new sealing task.
 	skipSealHook func(*task) bool                   // Method to decide whether skipping the sealing.
@@ -761,8 +765,9 @@ func (w *worker) updateSnapshot() {
 	w.snapshotTds = w.current.tds.WithNewBuffer()
 }
 
-func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
+func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address, trackProfit bool) ([]*types.Log, error) {
 	snap := w.current.state.Snapshot()
+	initialBalance := w.current.state.GetBalance(w.coinbase)
 
 	header := w.current.GetHeader()
 	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.tds.TrieStateWriter(), header, tx, &header.GasUsed, *w.chain.GetVMConfig())
@@ -905,7 +910,6 @@ func (w *worker) commitNewWork(ctx consensus.Cancel, interrupt *int32, noempty b
 
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-
 	tstart := time.Now()
 	parent := w.chain.CurrentBlock()
 
@@ -1019,10 +1023,14 @@ func (w *worker) commitNewWork(ctx consensus.Cancel, interrupt *int32, noempty b
 		ctx.CancelFunc()
 		return
 	}
-	// Short circuit if there is no available pending transactions.
+	// Short circuit if there is no available pending transactions or bundles.
 	// But if we disable empty precommit already, ignore it. Since
 	// empty block is necessary to keep the liveness of the network.
-	if len(pending) == 0 && atomic.LoadUint32(&w.noempty) == 0 {
+	noBundles := true
+	if w.flashbots.isFlashbots && len(w.eth.TxPool().AllMevBundles()) > 0 {
+		noBundles = false
+	}
+	if len(pending) == 0 && atomic.LoadUint32(&w.noempty) == 0 && noBundles {
 		w.updateSnapshot()
 		return
 	}
@@ -1033,6 +1041,30 @@ func (w *worker) commitNewWork(ctx consensus.Cancel, interrupt *int32, noempty b
 		if txs := remoteTxs[account]; len(txs) > 0 {
 			delete(remoteTxs, account)
 			localTxs[account] = txs
+		}
+	}
+	if w.flashbots.isFlashbots {
+		bundles, err := w.eth.TxPool().MevBundles(header.Number, header.Time)
+		if err != nil {
+			log.Error("Failed to fetch pending transactions", "err", err)
+			return
+		}
+		maxBundle, bundlePrice, ethToCoinbase, gasUsed := w.findMostProfitableBundle(bundles, w.coinbase, parent, header)
+		log.Info("Flashbots bundle", "ethToCoinbase", ethToCoinbase, "gasUsed", gasUsed, "bundlePrice", bundlePrice, "bundleLength", len(maxBundle))
+		if w.commitBundle(maxBundle, w.coinbase, interrupt) {
+			return
+		}
+	}
+	if w.flashbots.isFlashbots {
+		bundles, err := w.eth.TxPool().MevBundles(header.Number, header.Time)
+		if err != nil {
+			log.Error("Failed to fetch pending transactions", "err", err)
+			return
+		}
+		maxBundle, bundlePrice, ethToCoinbase, gasUsed := w.findMostProfitableBundle(bundles, w.coinbase, parent, header)
+		log.Info("Flashbots bundle", "ethToCoinbase", ethToCoinbase, "gasUsed", gasUsed, "bundlePrice", bundlePrice, "bundleLength", len(maxBundle))
+		if w.commitBundle(maxBundle, w.coinbase, interrupt) {
+			return
 		}
 	}
 	if len(localTxs) > 0 {
@@ -1097,6 +1129,118 @@ func (w *worker) commit(ctx consensus.Cancel, uncles []*types.Header, interval f
 		w.updateSnapshot()
 	}
 	return nil
+}
+
+func (w *worker) findMostProfitableBundle(bundles []types.Transactions, coinbase common.Address, parent *types.Block, header *types.Header) (types.Transactions, *big.Int, *big.Int, uint64) {
+	maxBundlePrice := new(big.Int)
+	maxTotalEth := new(big.Int)
+	var maxTotalGasUsed uint64
+	maxBundle := types.Transactions{}
+	for _, bundle := range bundles {
+		if len(bundle) == 0 {
+			continue
+		}
+		totalEth, totalGasUsed, err := w.computeBundleGas(bundle, parent, header)
+
+		if err != nil {
+			log.Warn("Error computing gas for a bundle", "error", err)
+			continue
+		}
+
+		mevGasPrice := new(big.Int).Div(totalEth, new(big.Int).SetUint64(totalGasUsed))
+		if mevGasPrice.Cmp(maxBundlePrice) > 0 {
+			maxBundle = bundle
+			maxBundlePrice = mevGasPrice
+			maxTotalEth = totalEth
+			maxTotalGasUsed = totalGasUsed
+		}
+	}
+
+	return maxBundle, maxBundlePrice, maxTotalEth, maxTotalGasUsed
+}
+
+// Compute the adjusted gas price for a whole bundle
+// Done by calculating all gas spent, adding transfers to the coinbase, and then dividing by gas used
+func (w *worker) computeBundleGas(bundle types.Transactions, parent *types.Block, header *types.Header) (*big.Int, uint64, error) {
+	env, err := w.generateEnv(parent, header)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var totalGasUsed uint64 = 0
+	var tempGasUsed uint64
+
+	coinbaseBalanceBefore := env.state.GetBalance(w.coinbase)
+
+	for _, tx := range bundle {
+		receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &w.coinbase, env.gasPool, env.state, env.header, tx, &tempGasUsed, *w.chain.GetVMConfig())
+		if err != nil {
+			return nil, 0, err
+		}
+		totalGasUsed += receipt.GasUsed
+	}
+	coinbaseBalanceAfter := env.state.GetBalance(w.coinbase)
+	coinbaseDiff := new(big.Int).Sub(coinbaseBalanceAfter, coinbaseBalanceBefore)
+	totalEth := new(big.Int)
+	totalEth.Add(totalEth, coinbaseDiff)
+
+	return totalEth, totalGasUsed, nil
+}
+
+func (w *worker) findMostProfitableBundle(bundles []types.Transactions, coinbase common.Address, parent *types.Block, header *types.Header) (types.Transactions, *big.Int, *big.Int, uint64) {
+	maxBundlePrice := new(big.Int)
+	maxTotalEth := new(big.Int)
+	var maxTotalGasUsed uint64
+	maxBundle := types.Transactions{}
+	for _, bundle := range bundles {
+		if len(bundle) == 0 {
+			continue
+		}
+		totalEth, totalGasUsed, err := w.computeBundleGas(bundle, parent, header)
+
+		if err != nil {
+			log.Warn("Error computing gas for a bundle", "error", err)
+			continue
+		}
+
+		mevGasPrice := new(big.Int).Div(totalEth, new(big.Int).SetUint64(totalGasUsed))
+		if mevGasPrice.Cmp(maxBundlePrice) > 0 {
+			maxBundle = bundle
+			maxBundlePrice = mevGasPrice
+			maxTotalEth = totalEth
+			maxTotalGasUsed = totalGasUsed
+		}
+	}
+
+	return maxBundle, maxBundlePrice, maxTotalEth, maxTotalGasUsed
+}
+
+// Compute the adjusted gas price for a whole bundle
+// Done by calculating all gas spent, adding transfers to the coinbase, and then dividing by gas used
+func (w *worker) computeBundleGas(bundle types.Transactions, parent *types.Block, header *types.Header) (*big.Int, uint64, error) {
+	env, err := w.generateEnv(parent, header)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var totalGasUsed uint64 = 0
+	var tempGasUsed uint64
+
+	coinbaseBalanceBefore := env.state.GetBalance(w.coinbase)
+
+	for _, tx := range bundle {
+		receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &w.coinbase, env.gasPool, env.state, env.header, tx, &tempGasUsed, *w.chain.GetVMConfig())
+		if err != nil {
+			return nil, 0, err
+		}
+		totalGasUsed += receipt.GasUsed
+	}
+	coinbaseBalanceAfter := env.state.GetBalance(w.coinbase)
+	coinbaseDiff := new(big.Int).Sub(coinbaseBalanceAfter, coinbaseBalanceBefore)
+	totalEth := new(big.Int)
+	totalEth.Add(totalEth, coinbaseDiff)
+
+	return totalEth, totalGasUsed, nil
 }
 
 // copyReceipts makes a deep copy of the given receipts.

@@ -193,7 +193,7 @@ func (miner *Miner) Pending() (*types.Block, *state.IntraBlockState, *state.Trie
 // change between multiple method calls
 
 func (miner *Miner) PendingBlock() *types.Block {
-	return miner.worker.pendingBlock()
+	return miner.worker.regularWorker.pendingBlock()
 }
 
 func (miner *Miner) SetEtherbase(addr common.Address) {
@@ -221,5 +221,5 @@ func (miner *Miner) DisablePreseal() {
 // SubscribePendingLogs starts delivering logs from pending transactions
 // to the given channel.
 func (miner *Miner) SubscribePendingLogs(ch chan<- []*types.Log) event.Subscription {
-	return miner.worker.pendingLogsFeed.Subscribe(ch)
+	return miner.worker.regularWorker.pendingLogsFeed.Subscribe(ch)
 }
