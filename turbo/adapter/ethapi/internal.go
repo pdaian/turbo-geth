@@ -2,12 +2,9 @@ package ethapi
 
 // This file stores proxy-objects for `internal` package
 import (
-	"context"
 	"github.com/ledgerwatch/turbo-geth/core"
 	"github.com/ledgerwatch/turbo-geth/core/types"
 	"github.com/ledgerwatch/turbo-geth/internal/ethapi"
-	"github.com/ledgerwatch/turbo-geth/common/hexutil"
-	"github.com/ledgerwatch/turbo-geth/rpc"
 )
 
 
@@ -33,12 +30,6 @@ type ExecutionResult struct {
 func RPCMarshalHeader(head *types.Header) map[string]interface{} {
 	return ethapi.RPCMarshalHeader(head)
 }
-
-
-func CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, blockNr rpc.BlockNumber, stateBlockNumberOrHash rpc.BlockNumberOrHash, blockTimestamp *uint64, timeoutMilliSecondsPtr *int64) (map[string]interface{}, error) {
-	return ethapi.NewBundleAPI().CallBundle(ctx, encodedTxs, blockNr, stateBlockNumberOrHash, blockTimestamp, timeoutMilliSecondsPtr);
-}
-
 
 
 //nolint

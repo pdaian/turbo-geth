@@ -3,26 +3,39 @@ package commands
 import (
 	"context"
 	"fmt"
+        "math/big"
+        "time"
+
+        "golang.org/x/crypto/sha3"
 
 	"github.com/ledgerwatch/turbo-geth/common"
+        "github.com/ledgerwatch/turbo-geth/common/math"
 	"github.com/ledgerwatch/turbo-geth/common/hexutil"
+	"github.com/ledgerwatch/turbo-geth/core"
 	"github.com/ledgerwatch/turbo-geth/core/rawdb"
+	"github.com/ledgerwatch/turbo-geth/core/types"
+	"github.com/ledgerwatch/turbo-geth/core/state"
+	"github.com/ledgerwatch/turbo-geth/core/vm"
+	"github.com/ledgerwatch/turbo-geth/log"
+	"github.com/ledgerwatch/turbo-geth/rlp"
 	"github.com/ledgerwatch/turbo-geth/ethdb"
 	"github.com/ledgerwatch/turbo-geth/rpc"
 	"github.com/ledgerwatch/turbo-geth/turbo/adapter/ethapi"
+	"github.com/ledgerwatch/turbo-geth/turbo/rpchelper"
+	"github.com/ledgerwatch/turbo-geth/turbo/transactions"
 )
 
 
 
-func (api *PrivateDebugAPIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, blockNr rpc.BlockNumber, stateBlockNumberOrHash rpc.BlockNumberOrHash, blockTimestamp *uint64, timeoutMilliSecondsPtr *int64) (map[string]interface{}, error) {
+func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, blockNr rpc.BlockNumber, stateBlockNumberOrHash rpc.BlockNumberOrHash, blockTimestamp *uint64, timeoutMilliSecondsPtr *int64) (map[string]interface{}, error) {
         dbtx, err := api.dbReader.Begin(ctx, ethdb.RO)
         if err != nil {
-                return 0, err
+                return nil, err
         }
         defer dbtx.Rollback()
         chainConfig, err := api.chainConfig(dbtx)
         if err != nil {
-                return 0, err
+                return nil, err
         }
 
 	if len(encodedTxs) == 0 {
@@ -44,11 +57,40 @@ func (api *PrivateDebugAPIImpl) CallBundle(ctx context.Context, encodedTxs []hex
 		timeoutMilliSeconds = *timeoutMilliSecondsPtr
 	}
 	timeout := time.Millisecond * time.Duration(timeoutMilliSeconds)
-	state, parent, err := s.b.StateAndHeaderByNumberOrHash(ctx, stateBlockNumberOrHash)
+
+
+
+	// NEW CODE IN PROGRESS
+        stateBlockNumber, hash, err := rpchelper.GetBlockNumber(stateBlockNumberOrHash, dbtx)
+        if err != nil {
+                return nil, err
+        }
+        var stateReader state.StateReader
+        if num, ok := stateBlockNumberOrHash.Number(); ok && num == rpc.LatestBlockNumber {
+                stateReader = state.NewPlainStateReader(dbtx)
+        } else {
+                stateReader = state.NewPlainDBState(dbtx, stateBlockNumber)
+        }
+        state := state.New(stateReader)
+
+        parent := rawdb.ReadHeader(dbtx, hash, stateBlockNumber)
+        if parent == nil {
+                return nil, fmt.Errorf("block %d(%x) not found", stateBlockNumber, hash)
+        }
+
+        msg := args.ToMessage(api.GasCap)
+        evmCtx := transactions.GetEvmContext( types.NewMessage(common.Address, common.Address, 0 /* nonce */, new(uint256.Int), new(uint256.Int), new(uint256.Int), []byte, false /* checkNonce */), parent, stateBlockNumberOrHash.RequireCanonical, dbtx)
+        evm := vm.NewEVM(evmCtx, state, chainConfig, vm.Config{Debug: true}) // do we need to specify tracer as in trace_adhoc?
+
+	// TODO PHIL REPLACE
+	// state, parent, err := s.b.StateAndHeaderByNumberOrHash(ctx, stateBlockNumberOrHash)
+
+
+
 	if state == nil || err != nil {
 		return nil, err
 	}
-	blockNumber := big.NewInt(int64(blockNr))
+	// blockNumber := big.NewInt(int64(blockNr)) Phil commented out replaced above
 
 	timestamp := parent.Time
 	if blockTimestamp != nil {
@@ -57,7 +99,7 @@ func (api *PrivateDebugAPIImpl) CallBundle(ctx context.Context, encodedTxs []hex
 	coinbase := parent.Coinbase
 	header := &types.Header{
 		ParentHash: parent.Hash(),
-		Number:     blockNumber,
+		Number:     stateBlockNumber, // is this correct?
 		GasLimit:   parent.GasLimit,
 		Time:       timestamp,
 		Difficulty: parent.Difficulty,
@@ -77,15 +119,19 @@ func (api *PrivateDebugAPIImpl) CallBundle(ctx context.Context, encodedTxs []hex
 	defer cancel()
 
 	// Get a new instance of the EVM
-	signer := types.MakeSigner(s.b.ChainConfig(), blockNumber)
+	signer := types.MakeSigner(chainConfig, stateBlockNumber)
 	firstMsg, err := txs[0].AsMessage(signer)
 	if err != nil {
 		return nil, err
 	}
-	evm, vmError, err := s.b.GetEVM(ctx, firstMsg, state, header)
-	if err != nil {
-		return nil, err
-	}
+
+	// TODO PHIL REPLACE
+	//evm, vmError, err := s.b.GetEVM(ctx, firstMsg, state, header)
+	//if err != nil {
+	//	return nil, err
+	//}
+
+
 	// Wait for the context to be done and cancel the evm. Even if the
 	// EVM has finished, cancelling may be done (repeatedly)
 	go func() {
@@ -107,7 +153,7 @@ func (api *PrivateDebugAPIImpl) CallBundle(ctx context.Context, encodedTxs []hex
 			return nil, err
 		}
 		result, err := core.ApplyMessage(evm, msg, gp, true /* refunds */, false /* gasBailout */)
-		if err := vmError(); err != nil {
+		if err != nil {
 			return nil, err
 		}
 		// If the timer caused an abort, return an appropriate error message
