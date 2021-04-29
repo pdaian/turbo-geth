@@ -12,6 +12,13 @@ import (
 	"github.com/ledgerwatch/turbo-geth/turbo/adapter/ethapi"
 )
 
+
+
+func (api *PrivateDebugAPIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, blockNr rpc.BlockNumber, stateBlockNumberOrHash rpc.BlockNumberOrHash, blockTimestamp *uint64, timeoutMilliSecondsPtr *int64) (map[string]interface{}, error) {
+	return ethapi.CallBundle(ctx, encodedTxs, blockNr, stateBlockNumberOrHash, blockTimestamp, timeoutMilliSecondsPtr);
+}
+
+
 // GetBlockByNumber implements eth_getBlockByNumber. Returns information about a block given the block's number.
 func (api *APIImpl) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
 	tx, err := api.dbReader.Begin(ctx, ethdb.RO)
