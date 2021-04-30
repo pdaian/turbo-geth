@@ -28,7 +28,7 @@ import (
 
 
 func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, blockNr rpc.BlockNumber, stateBlockNumberOrHash rpc.BlockNumberOrHash, blockTimestamp *uint64, timeoutMilliSecondsPtr *int64) (map[string]interface{}, error) {
-        dbtx, err := api.dbReader.Begin(ctx, ethdb.RO)
+        dbtx, err := api.db.BeginRo(ctx)
         if err != nil {
                 return nil, err
         }
@@ -48,7 +48,7 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
 		if err := rlp.DecodeBytes(encodedTx, tx); err != nil {
 			return nil, err
 		}
-		txs = append(txs, tx)
+		txs = append(txs, *tx)
 	}
 	defer func(start time.Time) { log.Debug("Executing EVM call finished", "runtime", time.Since(start)) }(time.Now())
 
@@ -61,7 +61,7 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
 
 
 	// NEW CODE IN PROGRESS
-        stateBlockNumber, hash, err := rpchelper.GetBlockNumber(stateBlockNumberOrHash, dbtx)
+        stateBlockNumber, hash, err := rpchelper.GetBlockNumber(stateBlockNumberOrHash, dbtx, api.pending)
         if err != nil {
                 return nil, err
         }
@@ -69,7 +69,7 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
         if num, ok := stateBlockNumberOrHash.Number(); ok && num == rpc.LatestBlockNumber {
                 stateReader = state.NewPlainStateReader(dbtx)
         } else {
-                stateReader = state.NewPlainDBState(dbtx, stateBlockNumber)
+			    stateReader = state.NewPlainDBState(ethdb.NewRoTxDb(dbtx), stateBlockNumber)
         }
         state := state.New(stateReader)
 
@@ -111,14 +111,14 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
 
 
 	// Get a new instance of the EVM
-	signer := types.MakeSigner(chainConfig, blockNumber)
-	firstMsg, err := txs[0].AsMessage(signer)
+	signer := types.MakeSigner(chainConfig, uint64(blockNr))
+	firstMsg, err := txs[0].AsMessage(*signer)
 	if err != nil {
 		return nil, err
 	}
 
-        evmCtx := transactions.GetEvmContext( firstMsg, header, stateBlockNumberOrHash.RequireCanonical, dbtx)
-        evm := vm.NewEVM(evmCtx, state, chainConfig, vm.Config{Debug: true}) // do we need to specify tracer as in trace_adhoc?
+        blockCtx, txCtx := transactions.GetEvmContext( firstMsg, header, stateBlockNumberOrHash.RequireCanonical, dbtx)
+        evm := vm.NewEVM(blockCtx, txCtx, state, chainConfig, vm.Config{Debug: true}) // do we need to specify tracer as in trace_adhoc?
 
 
 
@@ -158,7 +158,7 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
 
 	bundleHash := sha3.NewLegacyKeccak256()
 	for _, tx := range txs {
-		msg, err := tx.AsMessage(signer)
+		msg, err := tx.AsMessage(*signer)
 		if err != nil {
 			return nil, err
 		}
