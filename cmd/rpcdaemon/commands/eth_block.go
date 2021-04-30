@@ -78,7 +78,6 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
                 return nil, fmt.Errorf("block %d(%x) not found", stateBlockNumber, hash)
         }
 
-        msg := args.ToMessage(api.GasCap)
         evmCtx := transactions.GetEvmContext( types.NewMessage(common.Address, common.Address, 0 /* nonce */, new(uint256.Int), new(uint256.Int), new(uint256.Int), []byte, false /* checkNonce */), parent, stateBlockNumberOrHash.RequireCanonical, dbtx)
         evm := vm.NewEVM(evmCtx, state, chainConfig, vm.Config{Debug: true}) // do we need to specify tracer as in trace_adhoc?
 
