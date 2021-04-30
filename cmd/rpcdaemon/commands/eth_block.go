@@ -69,7 +69,7 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
         if num, ok := stateBlockNumberOrHash.Number(); ok && num == rpc.LatestBlockNumber {
                 stateReader = state.NewPlainStateReader(dbtx)
         } else {
-			    stateReader = state.NewPlainDBState(ethdb.NewRoTxDb(dbtx), stateBlockNumber)
+                stateReader = state.NewPlainDBState(ethdb.NewRoTxDb(dbtx), stateBlockNumber)
         }
         state := state.New(stateReader)
 
