@@ -78,8 +78,9 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
                 return nil, fmt.Errorf("block %d(%x) not found", stateBlockNumber, hash)
         }
 
-        evmCtx := transactions.GetEvmContext( types.NewMessage(common.Address, common.Address, 0 /* nonce */, new(uint256.Int), new(uint256.Int), new(uint256.Int), []byte, false /* checkNonce */), parent, stateBlockNumberOrHash.RequireCanonical, dbtx)
-        evm := vm.NewEVM(evmCtx, state, chainConfig, vm.Config{Debug: true}) // do we need to specify tracer as in trace_adhoc?
+	//var args TraceCallParam
+        //msg := args.ToMessage(api.GasCap)
+
 
 	// TODO PHIL REPLACE
 	// state, parent, err := s.b.StateAndHeaderByNumberOrHash(ctx, stateBlockNumberOrHash)
@@ -89,7 +90,10 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
 	if state == nil || err != nil {
 		return nil, err
 	}
-	// blockNumber := big.NewInt(int64(blockNr)) Phil commented out replaced above
+	blockNumber := big.NewInt(int64(blockNr)) 
+
+
+
 
 	timestamp := parent.Time
 	if blockTimestamp != nil {
@@ -98,12 +102,25 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
 	coinbase := parent.Coinbase
 	header := &types.Header{
 		ParentHash: parent.Hash(),
-		Number:     stateBlockNumber, // is this correct?
+		Number:     blockNumber, // is this correct?
 		GasLimit:   parent.GasLimit,
 		Time:       timestamp,
 		Difficulty: parent.Difficulty,
 		Coinbase:   coinbase,
 	}
+
+
+	// Get a new instance of the EVM
+	signer := types.MakeSigner(chainConfig, blockNumber)
+	firstMsg, err := txs[0].AsMessage(signer)
+	if err != nil {
+		return nil, err
+	}
+
+        evmCtx := transactions.GetEvmContext( firstMsg, header, stateBlockNumberOrHash.RequireCanonical, dbtx)
+        evm := vm.NewEVM(evmCtx, state, chainConfig, vm.Config{Debug: true}) // do we need to specify tracer as in trace_adhoc?
+
+
 
 	// Setup context so it may be cancelled the call has completed
 	// or, in case of unmetered gas, setup a context with a timeout.
@@ -117,12 +134,6 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
 	// this makes sure resources are cleaned up.
 	defer cancel()
 
-	// Get a new instance of the EVM
-	signer := types.MakeSigner(chainConfig, stateBlockNumber)
-	firstMsg, err := txs[0].AsMessage(signer)
-	if err != nil {
-		return nil, err
-	}
 
 	// TODO PHIL REPLACE
 	//evm, vmError, err := s.b.GetEVM(ctx, firstMsg, state, header)
