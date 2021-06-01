@@ -3,124 +3,101 @@ package commands
 import (
 	"context"
 	"fmt"
-        "math/big"
-        "time"
+	"math/big"
+	"time"
 
-        "golang.org/x/crypto/sha3"
+	"golang.org/x/crypto/sha3"
 
 	"github.com/ledgerwatch/turbo-geth/common"
-        "github.com/ledgerwatch/turbo-geth/common/math"
 	"github.com/ledgerwatch/turbo-geth/common/hexutil"
+	"github.com/ledgerwatch/turbo-geth/common/math"
 	"github.com/ledgerwatch/turbo-geth/core"
 	"github.com/ledgerwatch/turbo-geth/core/rawdb"
-	"github.com/ledgerwatch/turbo-geth/core/types"
 	"github.com/ledgerwatch/turbo-geth/core/state"
+	"github.com/ledgerwatch/turbo-geth/core/types"
 	"github.com/ledgerwatch/turbo-geth/core/vm"
-	"github.com/ledgerwatch/turbo-geth/log"
-	"github.com/ledgerwatch/turbo-geth/rlp"
 	"github.com/ledgerwatch/turbo-geth/ethdb"
+	"github.com/ledgerwatch/turbo-geth/log"
 	"github.com/ledgerwatch/turbo-geth/rpc"
 	"github.com/ledgerwatch/turbo-geth/turbo/adapter/ethapi"
 	"github.com/ledgerwatch/turbo-geth/turbo/rpchelper"
 	"github.com/ledgerwatch/turbo-geth/turbo/transactions"
 )
 
+func (api *APIImpl) CallBundle(ctx context.Context, txHashes []common.Hash, stateBlockNumberOrHash rpc.BlockNumberOrHash, timeoutMilliSecondsPtr *int64) (map[string]interface{}, error) {
+	dbtx, err := api.db.BeginRo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer dbtx.Rollback()
 
+	chainConfig, err := api.chainConfig(dbtx)
+	if err != nil {
+		return nil, err
+	}
 
-func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, blockNr rpc.BlockNumber, stateBlockNumberOrHash rpc.BlockNumberOrHash, blockTimestamp *uint64, timeoutMilliSecondsPtr *int64) (map[string]interface{}, error) {
-        dbtx, err := api.dbReader.Begin(ctx, ethdb.RO)
-        if err != nil {
-                return nil, err
-        }
-        defer dbtx.Rollback()
-        chainConfig, err := api.chainConfig(dbtx)
-        if err != nil {
-                return nil, err
-        }
-
-	if len(encodedTxs) == 0 {
+	if len(txHashes) == 0 {
 		return nil, nil
 	}
+
 	var txs types.Transactions
 
-	for _, encodedTx := range encodedTxs {
-		tx := new(types.Transaction)
-		if err := rlp.DecodeBytes(encodedTx, tx); err != nil {
-			return nil, err
+	for _, txHash := range txHashes {
+		txn, _, _, _ := rawdb.ReadTransaction(ethdb.NewRoTxDb(dbtx), txHash)
+		if txn == nil {
+			return nil, nil // not error, see https://github.com/ledgerwatch/turbo-geth/issues/1645
 		}
-		txs = append(txs, tx)
+		txs = append(txs, txn)
 	}
 	defer func(start time.Time) { log.Debug("Executing EVM call finished", "runtime", time.Since(start)) }(time.Now())
 
-	timeoutMilliSeconds := int64(5000)
-	if timeoutMilliSecondsPtr != nil {
-		timeoutMilliSeconds = *timeoutMilliSecondsPtr
-	}
-	timeout := time.Millisecond * time.Duration(timeoutMilliSeconds)
-
-
-
-	// NEW CODE IN PROGRESS
-        stateBlockNumber, hash, err := rpchelper.GetBlockNumber(stateBlockNumberOrHash, dbtx)
-        if err != nil {
-                return nil, err
-        }
-        var stateReader state.StateReader
-        if num, ok := stateBlockNumberOrHash.Number(); ok && num == rpc.LatestBlockNumber {
-                stateReader = state.NewPlainStateReader(dbtx)
-        } else {
-                stateReader = state.NewPlainDBState(dbtx, stateBlockNumber)
-        }
-        state := state.New(stateReader)
-
-        parent := rawdb.ReadHeader(dbtx, hash, stateBlockNumber)
-        if parent == nil {
-                return nil, fmt.Errorf("block %d(%x) not found", stateBlockNumber, hash)
-        }
-
-	//var args TraceCallParam
-        //msg := args.ToMessage(api.GasCap)
-
-
-	// TODO PHIL REPLACE
-	// state, parent, err := s.b.StateAndHeaderByNumberOrHash(ctx, stateBlockNumberOrHash)
-
-
-
-	if state == nil || err != nil {
+	stateBlockNumber, hash, err := rpchelper.GetBlockNumber(stateBlockNumberOrHash, dbtx, api.pending)
+	if err != nil {
 		return nil, err
 	}
-	blockNumber := big.NewInt(int64(blockNr)) 
 
-
-
-
-	timestamp := parent.Time
-	if blockTimestamp != nil {
-		timestamp = *blockTimestamp
+	var stateReader state.StateReader
+	if num, ok := stateBlockNumberOrHash.Number(); ok && num == rpc.LatestBlockNumber {
+		stateReader = state.NewPlainStateReader(dbtx)
+	} else {
+		stateReader = state.NewPlainKvState(dbtx, stateBlockNumber)
 	}
+	st := state.New(stateReader)
+
+	parent := rawdb.ReadHeader(dbtx, hash, stateBlockNumber)
+	if parent == nil {
+		return nil, fmt.Errorf("block %d(%x) not found", stateBlockNumber, hash)
+	}
+
+	blockNumber := stateBlockNumber + 1
+
+	timestamp := parent.Time // Dont care about the timestamp
+
 	coinbase := parent.Coinbase
 	header := &types.Header{
 		ParentHash: parent.Hash(),
-		Number:     blockNumber, // is this correct?
+		Number:     big.NewInt(int64(blockNumber)),
 		GasLimit:   parent.GasLimit,
 		Time:       timestamp,
 		Difficulty: parent.Difficulty,
 		Coinbase:   coinbase,
 	}
 
-
 	// Get a new instance of the EVM
 	signer := types.MakeSigner(chainConfig, blockNumber)
-	firstMsg, err := txs[0].AsMessage(signer)
+	firstMsg, err := txs[0].AsMessage(*signer)
 	if err != nil {
 		return nil, err
 	}
 
-        evmCtx := transactions.GetEvmContext( firstMsg, header, stateBlockNumberOrHash.RequireCanonical, dbtx)
-        evm := vm.NewEVM(evmCtx, state, chainConfig, vm.Config{Debug: true}) // do we need to specify tracer as in trace_adhoc?
+	blockCtx, txCtx := transactions.GetEvmContext(firstMsg, header, stateBlockNumberOrHash.RequireCanonical, dbtx)
+	evm := vm.NewEVM(blockCtx, txCtx, st, chainConfig, vm.Config{Debug: false})
 
-
+	timeoutMilliSeconds := int64(5000)
+	if timeoutMilliSecondsPtr != nil {
+		timeoutMilliSeconds = *timeoutMilliSecondsPtr
+	}
+	timeout := time.Millisecond * time.Duration(timeoutMilliSeconds)
 
 	// Setup context so it may be cancelled the call has completed
 	// or, in case of unmetered gas, setup a context with a timeout.
@@ -134,14 +111,6 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
 	// this makes sure resources are cleaned up.
 	defer cancel()
 
-
-	// TODO PHIL REPLACE
-	//evm, vmError, err := s.b.GetEVM(ctx, firstMsg, state, header)
-	//if err != nil {
-	//	return nil, err
-	//}
-
-
 	// Wait for the context to be done and cancel the evm. Even if the
 	// EVM has finished, cancelling may be done (repeatedly)
 	go func() {
@@ -154,14 +123,14 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
 	gp := new(core.GasPool).AddGas(math.MaxUint64)
 
 	results := []map[string]interface{}{}
-	coinbaseBalanceBefore := evm.IntraBlockState.GetBalance(coinbase).ToBig()
 
 	bundleHash := sha3.NewLegacyKeccak256()
 	for _, tx := range txs {
-		msg, err := tx.AsMessage(signer)
+		msg, err := tx.AsMessage(*signer)
 		if err != nil {
 			return nil, err
 		}
+		// Execute the transaction message
 		result, err := core.ApplyMessage(evm, msg, gp, true /* refunds */, false /* gasBailout */)
 		if err != nil {
 			return nil, err
@@ -169,9 +138,6 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
 		// If the timer caused an abort, return an appropriate error message
 		if evm.Cancelled() {
 			return nil, fmt.Errorf("execution aborted (timeout = %v)", timeout)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("err: %w; supplied gas %d; txhash %s", err, msg.Gas(), tx.Hash())
 		}
 
 		txHash := tx.Hash().String()
@@ -191,12 +157,9 @@ func (api *APIImpl) CallBundle(ctx context.Context, encodedTxs []hexutil.Bytes, 
 
 	ret := map[string]interface{}{}
 	ret["results"] = results
-	ret["coinbaseDiff"] = new(big.Int).Sub(evm.IntraBlockState.GetBalance(coinbase).ToBig(), coinbaseBalanceBefore).String()
 	ret["bundleHash"] = "0x" + common.Bytes2Hex(bundleHash.Sum(nil))
 	return ret, nil
-
 }
-
 
 // GetBlockByNumber implements eth_getBlockByNumber. Returns information about a block given the block's number.
 func (api *APIImpl) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
